@@ -1,0 +1,8 @@
+COMPACTAR VDISK
+
+diskpart
+select vdisk file="C:\Users\Matheus Coelho\AppData\Local\wsl\{ed5fb4f2-a578-4903-beeb-740ed9ec9da3}\ext4.vhdx"
+attach vdisk readonly
+compact vdisk
+detach vdisk
+exit
