@@ -264,7 +264,12 @@ exit
             # reagir), este processo mata o diskpart de fora mesmo assim.
             $killerPsi = New-Object System.Diagnostics.ProcessStartInfo
             $killerPsi.FileName = "powershell.exe"
-            $killerPsi.Arguments = "-NoProfile -WindowStyle Hidden -Command `"Start-Sleep -Seconds 300; try { Stop-Process -Id $($proc.Id) -Force -ErrorAction SilentlyContinue } catch {}`""
+            # Este killer NAO deve usar o mesmo prazo do watchdog de atividade
+            # (5 min): uma compactacao grande pode legitimamente ficar mais
+            # tempo reportando o mesmo percentual (ainda esta vivo, so lento).
+            # Este e um teto absoluto de ultimo recurso, bem mais generoso,
+            # para o caso do watchdog principal nao conseguir reagir.
+            $killerPsi.Arguments = "-NoProfile -WindowStyle Hidden -Command `"Start-Sleep -Seconds 1800; try { Stop-Process -Id $($proc.Id) -Force -ErrorAction SilentlyContinue } catch {}`""
             $killerPsi.CreateNoWindow = $true
             $killerPsi.UseShellExecute = $false
             $killerProc = [System.Diagnostics.Process]::Start($killerPsi)

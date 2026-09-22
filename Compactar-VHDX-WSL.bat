@@ -89,7 +89,7 @@ rem      em vez de travar o script para sempre)
 rem ============================================================
 set "DPHELPER=%TEMP%\wsl_diskpart_runner_%RANDOM%.ps1"
 if exist "%DPHELPER%" del "%DPHELPER%" >nul 2>&1
-echo param([string]$Script, [int]$TimeoutMin = 5) >"%DPHELPER%"
+echo param([string]$Script, [int]$TimeoutMin = 5, [int]$KillTimeoutMin = 30) >"%DPHELPER%"
 echo $psi = New-Object System.Diagnostics.ProcessStartInfo >>"%DPHELPER%"
 echo $psi.FileName = 'diskpart.exe' >>"%DPHELPER%"
 echo $psi.Arguments = '/s "' + $Script + '"' >>"%DPHELPER%"
@@ -104,7 +104,7 @@ echo [void]$proc.Start() >>"%DPHELPER%"
 echo $proc.BeginOutputReadLine() >>"%DPHELPER%"
 echo $killerPsi = New-Object System.Diagnostics.ProcessStartInfo >>"%DPHELPER%"
 echo $killerPsi.FileName = 'powershell.exe' >>"%DPHELPER%"
-echo $killerPsi.Arguments = '-NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds ' + ($TimeoutMin * 60) + '; try { Stop-Process -Id ' + $proc.Id + ' -Force -ErrorAction SilentlyContinue } catch {}"' >>"%DPHELPER%"
+echo $killerPsi.Arguments = '-NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds ' + ($KillTimeoutMin * 60) + '; try { Stop-Process -Id ' + $proc.Id + ' -Force -ErrorAction SilentlyContinue } catch {}"' >>"%DPHELPER%"
 echo $killerPsi.CreateNoWindow = $true >>"%DPHELPER%"
 echo $killerPsi.UseShellExecute = $false >>"%DPHELPER%"
 echo $killerProc = [System.Diagnostics.Process]::Start($killerPsi) >>"%DPHELPER%"
@@ -311,17 +311,24 @@ if !TENTATIVA! GTR 1 (
 
 echo    %MG%^> executando diskpart (tentativa !TENTATIVA!/3)...%RS%
 set "FALHOU=0"
-for /f "usebackq delims=" %%L in (`powershell -NoProfile -File "%DPHELPER%" -Script "%DPSCRIPT%" -TimeoutMin 5`) do (
+set "PERCENTATIVO=0"
+for /f "usebackq delims=" %%L in (`powershell -NoProfile -File "%DPHELPER%" -Script "%DPSCRIPT%" -TimeoutMin 5 -KillTimeoutMin 30`) do (
     if "%%L"=="HANGED_TIMEOUT" (
         echo    %RD%[ERRO] diskpart sem atividade ha 5 minutos - considerado travado. Encerrado.%RS%
         set "FALHOU=1"
     ) else (
-        echo "%%L" | findstr /b "EXITCODE:" >nul 2>&1
+        echo %%L | findstr /b "EXITCODE:" >nul 2>&1
         if errorlevel 1 (
             echo "%%L" | findstr /i "percent cento" >nul 2>&1
             if not errorlevel 1 (
-                echo    %GR%^>^>%RS% %%L
+                if "!PERCENTATIVO!"=="1" (
+                    echo %ESC%[1A%ESC%[G%ESC%[2K   %GR%^>^>%RS% %%L
+                ) else (
+                    echo    %GR%^>^>%RS% %%L
+                    set "PERCENTATIVO=1"
+                )
             ) else (
+                set "PERCENTATIVO=0"
                 echo    %DM%..%RS% %%L
             )
             echo "%%L" | findstr /i "erro error" >nul 2>&1

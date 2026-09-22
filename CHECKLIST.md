@@ -48,7 +48,7 @@ Checklist completo de tudo que o projeto implementa, cobre e garante, nas duas v
 - [x] Gera o script de `diskpart` (`select` → `attach vdisk readonly` → `compact vdisk` → `detach vdisk` → `exit`) em um arquivo temporário.
 - [x] Executa com saída padrão redirecionada e **lida de forma assíncrona/streaming**, não só capturada no final.
 - [x] Reconhece linhas de progresso em **inglês** (`"NN percent completed"`) **e português** (`"NN por cento concluído"`).
-- [x] Atualiza uma barra de progresso visual em uma única linha (sem gerar quebras de linha a cada atualização de percentual).
+- [x] Atualiza uma barra de progresso visual em uma única linha (sem gerar quebras de linha a cada atualização de percentual) — no `.ps1` via `\r`; no `.bat`, via sequências ANSI de reposicionar cursor e limpar linha (`cursor up` + `erase line`), já que o `diskpart` frequentemente repete o mesmo percentual várias vezes seguidas como um "sinal de vida" antes de avançar.
 - [x] Exibe todas as demais linhas de saída do `diskpart` (transparência total do processamento, não só o percentual).
 - [x] Detecta a palavra "erro"/"error" em qualquer linha e marca a tentativa como falha, mesmo que o código de saída do processo seja 0.
 - [x] Verifica também o código de saída (`ExitCode`) do processo `diskpart.exe`.
@@ -56,8 +56,9 @@ Checklist completo de tudo que o projeto implementa, cobre e garante, nas duas v
 ## 6. Watchdog anti-travamento (duas camadas independentes)
 
 - [x] **Camada 1 (interna)**: monitora o tempo desde a última linha de saída recebida do `diskpart` dentro do próprio loop de leitura. Se passarem **5 minutos sem nenhuma atividade**, mata o processo (`Kill()`).
-- [x] **Camada 2 (externa/independente)**: um segundo processo `powershell.exe` separado é lançado junto com o `diskpart`, dorme pelo mesmo tempo limite e mata o processo **por PID, de fora**, sem depender do mesmo loop de leitura que poderia estar preso.
+- [x] **Camada 2 (externa/independente)**: um segundo processo `powershell.exe` separado é lançado junto com o `diskpart`, dorme por um teto absoluto (**30 minutos**, deliberadamente maior que o da camada 1) e mata o processo **por PID, de fora**, sem depender do mesmo loop de leitura que poderia estar preso.
 - [x] Justificativa técnica desta segunda camada: em teste real, a camada 1 não disparou após um travamento de mais de 11 minutos (causa raiz não totalmente isolada — possivelmente o próprio subsistema de I/O assíncrono ficando afetado pelo mesmo estado emperrado do `vds`). A camada 2, sendo um processo genuinamente separado, garante que o `diskpart` seja finalizado mesmo que o loop de monitoramento principal também pare de reagir.
+- [x] **Correção importante**: a camada 2 originalmente usava o mesmo prazo de 5 minutos da camada 1, o que causou um bug real — uma compactação grande (144 GB) que ficava minutos reportando o mesmo percentual (`diskpart` ainda vivo, só lento nessa faixa) foi morta pela camada 2 mesmo sem estar travada, porque essa camada não olha atividade, só o relógio desde o início. Por isso ela usa um prazo bem mais generoso (30 min) que só age quando a camada 1 (que É sensível a atividade) falhar em reagir.
 - [x] Rede de segurança final: depois de `WaitForExit`, se o processo **ainda** não tiver terminado (nem a camada 1 nem a camada 2 conseguiram), uma terceira tentativa de `Kill()` é feita antes de seguir para o retry.
 - [x] Trata qualquer um desses casos como falha de tentativa (entra no fluxo de retry normalmente), em vez de travar o script indefinidamente.
 - [x] Implementado via leitura assíncrona de saída (`OutputDataReceived` + fila concorrente) tanto no `.ps1` quanto no helper PowerShell gerado pelo `.bat`.

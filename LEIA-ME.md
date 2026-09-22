@@ -98,7 +98,9 @@ Se o `diskpart` ficar **5 minutos sem imprimir nada** (nem progresso, nem erro),
 Isso é feito em **duas camadas independentes**, porque em depuração real a primeira camada, por si só, não foi suficiente:
 
 1. **Camada interna**: o próprio loop que lê a saída do `diskpart` mede o tempo desde a última linha recebida e mata o processo se passar do limite.
-2. **Camada externa**: em paralelo, um segundo processo `powershell.exe` completamente separado é lançado junto com o `diskpart`. Ele só dorme pelo tempo limite e mata o processo **por PID, de fora** — sem depender do mesmo loop de leitura, que em um caso real ficou preso por mais de 11 minutos sem a camada interna reagir (a causa exata desse comportamento não foi totalmente isolada, possivelmente ligada ao mesmo estado do `vds` afetando o próprio mecanismo de leitura assíncrona do PowerShell).
+2. **Camada externa**: em paralelo, um segundo processo `powershell.exe` completamente separado é lançado junto com o `diskpart`. Ele dorme por um teto absoluto de **30 minutos** e mata o processo **por PID, de fora** — sem depender do mesmo loop de leitura, que em um caso real ficou preso por mais de 11 minutos sem a camada interna reagir (a causa exata desse comportamento não foi totalmente isolada, possivelmente ligada ao mesmo estado do `vds` afetando o próprio mecanismo de leitura assíncrona do PowerShell).
+
+> **Nota de depuração real**: a camada externa inicialmente usava o mesmo prazo de 5 minutos da interna, e isso causou uma compactação de 144 GB ser morta no meio, sem estar travada — só lenta, repetindo o mesmo percentual como sinal de vida antes de avançar. Por isso ela usa um prazo bem maior (30 min): é rede de segurança para quando a camada interna (sensível a atividade real) falhar, não um segundo cronômetro igual.
 
 Com as duas camadas, mesmo que uma falhe, a outra garante que o `diskpart` não fique rodando indefinidamente.
 
