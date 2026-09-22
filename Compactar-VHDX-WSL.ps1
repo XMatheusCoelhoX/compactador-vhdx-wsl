@@ -258,6 +258,17 @@ exit
             [void]$proc.Start()
             $proc.BeginOutputReadLine()
 
+            # Watchdog independente: roda num processo separado, fora do loop
+            # principal. Se o loop de leitura ficar preso por qualquer motivo
+            # (ex.: o proprio Windows/vds emperrado impedindo o polling de
+            # reagir), este processo mata o diskpart de fora mesmo assim.
+            $killerPsi = New-Object System.Diagnostics.ProcessStartInfo
+            $killerPsi.FileName = "powershell.exe"
+            $killerPsi.Arguments = "-NoProfile -WindowStyle Hidden -Command `"Start-Sleep -Seconds 300; try { Stop-Process -Id $($proc.Id) -Force -ErrorAction SilentlyContinue } catch {}`""
+            $killerPsi.CreateNoWindow = $true
+            $killerPsi.UseShellExecute = $false
+            $killerProc = [System.Diagnostics.Process]::Start($killerPsi)
+
             Draw-ProgressBar -Percent 0 -Label "iniciando diskpart..."
             $lastActivity = Get-Date
             $hangLimit = [TimeSpan]::FromMinutes(5)
@@ -285,6 +296,15 @@ exit
                 }
             }
             $proc.WaitForExit(5000) | Out-Null
+            try { if (-not $killerProc.HasExited) { $killerProc.Kill() } } catch {}
+            if (-not $proc.HasExited) {
+                # ultima rede de seguranca: nem o loop principal nem o watchdog
+                # independente conseguiram terminar o processo a tempo
+                try { $proc.Kill() } catch {}
+                $travou = $true
+                $falhouComErro = $true
+                Start-Sleep -Milliseconds 500
+            }
             Draw-ProgressBar -Percent 100 -Label "concluido"
             $exitCode = if ($travou) { -1 } else { $proc.ExitCode }
             Unregister-Event -SourceIdentifier $eventJob.Name -ErrorAction SilentlyContinue
