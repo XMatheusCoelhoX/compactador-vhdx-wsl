@@ -92,8 +92,15 @@ O `diskpart` é executado com a saída padrão redirecionada e lida linha a linh
 - Se contém a palavra "erro"/"error", marca a tentativa como falha.
 - Qualquer outra linha é exibida como informação, para transparência total do que está acontecendo.
 
-### 4.6 Watchdog anti-travamento
-Se o `diskpart` ficar **5 minutos sem imprimir nada** (nem progresso, nem erro), ele é considerado travado e é **morto automaticamente** (`Kill()`), contando como uma tentativa falha para o retry — em vez de deixar o script parado para sempre, como acontecia antes dessa proteção existir.
+### 4.6 Watchdog anti-travamento (duas camadas)
+Se o `diskpart` ficar **5 minutos sem imprimir nada** (nem progresso, nem erro), ele é considerado travado e é morto automaticamente, contando como uma tentativa falha para o retry — em vez de deixar o script parado para sempre.
+
+Isso é feito em **duas camadas independentes**, porque em depuração real a primeira camada, por si só, não foi suficiente:
+
+1. **Camada interna**: o próprio loop que lê a saída do `diskpart` mede o tempo desde a última linha recebida e mata o processo se passar do limite.
+2. **Camada externa**: em paralelo, um segundo processo `powershell.exe` completamente separado é lançado junto com o `diskpart`. Ele só dorme pelo tempo limite e mata o processo **por PID, de fora** — sem depender do mesmo loop de leitura, que em um caso real ficou preso por mais de 11 minutos sem a camada interna reagir (a causa exata desse comportamento não foi totalmente isolada, possivelmente ligada ao mesmo estado do `vds` afetando o próprio mecanismo de leitura assíncrona do PowerShell).
+
+Com as duas camadas, mesmo que uma falhe, a outra garante que o `diskpart` não fique rodando indefinidamente.
 
 ### 4.7 Retry automático
 Cada disco tem até **3 tentativas**. Entre uma tentativa e outra, o script libera o disco de novo (passo 4.3) antes de tentar.
@@ -122,6 +129,7 @@ Este processo **não apaga, não move e não altera dados dentro do Linux**. O `
 | "Nenhum arquivo .vhdx encontrado" | WSL não está instalado, ou nenhuma distro foi inicializada ainda | Rode `wsl --install` ou inicie a distro pelo menos uma vez |
 | Erro "arquivo já está sendo usado" mesmo após todas as tentativas | Outro programa (Docker Desktop, outra VM Hyper-V) está usando o disco | Feche esses programas e rode de novo |
 | "diskpart sem atividade há 5 minutos" | O subsistema de disco virtual do Windows (`vds`) ficou num estado preso, geralmente após vários testes/tentativas seguidas no mesmo disco | **Reinicie o Windows.** Isso limpa o estado interno do `vds` que nenhum comando consegue limpar sozinho |
+| A janela fica parada logo em `Executando 'wsl --shutdown'...`, sem nunca chegar a mostrar o `diskpart` | O subsistema WSL/Hyper-V do Windows como um todo travou — não é mais só o `vds`, é o próprio `wsl.exe`. Isso foi observado em depuração real após dezenas de tentativas forçadas seguidas no mesmo PC | **Reinicie o Windows.** Nenhum watchdog de aplicação protege contra um comando do próprio Windows travando; isso é o sinal mais claro de que só o reboot resolve |
 | Cores aparecem como texto estranho (`←[96m` etc.) | Windows muito antigo sem suporte a ANSI | Já tratado automaticamente a partir da versão atual do script — atualize os arquivos |
 
 ---

@@ -53,12 +53,15 @@ Checklist completo de tudo que o projeto implementa, cobre e garante, nas duas v
 - [x] Detecta a palavra "erro"/"error" em qualquer linha e marca a tentativa como falha, mesmo que o código de saída do processo seja 0.
 - [x] Verifica também o código de saída (`ExitCode`) do processo `diskpart.exe`.
 
-## 6. Watchdog anti-travamento
+## 6. Watchdog anti-travamento (duas camadas independentes)
 
-- [x] Monitora o tempo desde a última linha de saída recebida do `diskpart`.
-- [x] Se passarem **5 minutos sem nenhuma atividade**, mata o processo (`Kill()`) automaticamente.
-- [x] Trata esse caso como falha de tentativa (entra no fluxo de retry normalmente), em vez de travar o script indefinidamente.
+- [x] **Camada 1 (interna)**: monitora o tempo desde a última linha de saída recebida do `diskpart` dentro do próprio loop de leitura. Se passarem **5 minutos sem nenhuma atividade**, mata o processo (`Kill()`).
+- [x] **Camada 2 (externa/independente)**: um segundo processo `powershell.exe` separado é lançado junto com o `diskpart`, dorme pelo mesmo tempo limite e mata o processo **por PID, de fora**, sem depender do mesmo loop de leitura que poderia estar preso.
+- [x] Justificativa técnica desta segunda camada: em teste real, a camada 1 não disparou após um travamento de mais de 11 minutos (causa raiz não totalmente isolada — possivelmente o próprio subsistema de I/O assíncrono ficando afetado pelo mesmo estado emperrado do `vds`). A camada 2, sendo um processo genuinamente separado, garante que o `diskpart` seja finalizado mesmo que o loop de monitoramento principal também pare de reagir.
+- [x] Rede de segurança final: depois de `WaitForExit`, se o processo **ainda** não tiver terminado (nem a camada 1 nem a camada 2 conseguiram), uma terceira tentativa de `Kill()` é feita antes de seguir para o retry.
+- [x] Trata qualquer um desses casos como falha de tentativa (entra no fluxo de retry normalmente), em vez de travar o script indefinidamente.
 - [x] Implementado via leitura assíncrona de saída (`OutputDataReceived` + fila concorrente) tanto no `.ps1` quanto no helper PowerShell gerado pelo `.bat`.
+- [x] Validado com testes isolados: processo propositalmente travado (`Start-Sleep -Seconds 999`) é finalizado corretamente dentro do tempo limite configurado.
 
 ## 7. Retry automático
 
@@ -95,9 +98,10 @@ Checklist completo de tudo que o projeto implementa, cobre e garante, nas duas v
 
 ## 12. Limitações conhecidas (documentadas, não escondidas)
 
-- [ ] Se o subsistema `vds` do Windows ficar genuinamente "emperrado" no nível do driver/kernel (situação observada após múltiplas tentativas de compactação forçadas seguidas no mesmo disco durante testes), nenhum comando de software resolve — é necessário reiniciar o Windows. O script não tenta forçar um reboot automaticamente (isso seria uma ação disruptiva demais para ser automática).
+- [ ] Se o subsistema `vds`/Hyper-V do Windows ficar genuinamente "emperrado" no nível do driver/kernel, nenhum comando de software resolve — é necessário reiniciar o Windows. Em depuração real neste projeto, isso foi observado escalando em três níveis, após dezenas de tentativas forçadas seguidas no mesmo disco durante os testes: primeiro só o `diskpart` travava; depois até o `Restart-Service vds` parava de responder; e por fim até o próprio `wsl --shutdown` (o primeiro comando do script, antes de qualquer `diskpart`) ficou travado indefinidamente. Esse último estágio confirma que o problema passa a ser do sistema operacional como um todo, não do script — nenhum watchdog de aplicação consegue proteger contra um comando do próprio Windows que trava. O script não tenta forçar um reboot automaticamente (seria uma ação disruptiva demais para ser automática); a orientação nesse cenário é reiniciar o Windows manualmente.
 - [ ] O `diskpart compact` só recupera espaço que o Linux já marcou como livre via TRIM/discard. Se o filesystem `ext4` dentro da distro nunca rodou `fstrim`, o disco pode não encolher mesmo sem erros — rodar `sudo fstrim -av` dentro do WSL antes de compactar maximiza o resultado.
 - [ ] Cores ANSI truecolor (verde neon) precisam de Windows 10 1909+ ou Windows Terminal para aparecer exatamente na cor especificada; em versões mais antigas com suporte básico a VT, cai para uma cor sólida de fallback.
+- [ ] O watchdog de duas camadas (seção 6) protege especificamente a etapa do `diskpart`. Ele não cobre um travamento do próprio `wsl --shutdown` executado antes dela — esse é o cenário de "sistema realmente emperrado" descrito no primeiro item desta seção, e é sinal de que chegou a hora de reiniciar o Windows em vez de tentar rodar o script de novo.
 
 ---
 
